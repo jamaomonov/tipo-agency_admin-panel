@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,135 +26,164 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
-import { mockVariants, mockProducts, getProductById, getImagesByVariantId } from '@/data/mockData';
-import type { ProductVariant, ProductVariantFormData } from '@/types';
-import { Plus, Edit, Trash2, Search, Palette, Package, Eye, AlertTriangle } from 'lucide-react';
+import { LoadingState } from '@/components/ui/loading-state';
+import { ApiError } from '@/components/ui/api-error';
+import { useApi } from '@/hooks/use-api';
+import { variantsApi } from '@/services/variants-api';
+import { productsApi } from '@/services/products-api';
+import type { ProductVariantFormData, Product, ProductVariantWithDetails } from '@/types';
+import { Plus, Edit, Trash2, Search, Palette, AlertTriangle, Loader2 } from 'lucide-react';
 
 export function Variants() {
-  const [variants, setVariants] = useState<ProductVariant[]>(mockVariants);
+  const [variants, setVariants] = useState<ProductVariantWithDetails[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [productFilter, setProductFilter] = useState<string>('all');
   const [stockFilter, setStockFilter] = useState<string>('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingVariant, setEditingVariant] = useState<ProductVariant | null>(null);
+  const [editingVariant, setEditingVariant] = useState<ProductVariantWithDetails | null>(null);
   const [formData, setFormData] = useState<ProductVariantFormData>({
-    productId: '',
-    name: '',
+    product_id: 0,
+    price: 0,
+    stock_quantity: 0,
     color: '',
     size: '',
     material: '',
-    price: undefined,
-    sku: '',
-    stock: 0,
-    status: 'active',
   });
+
+  const navigate = useNavigate();
+
+  // API хуки
+  const [getVariantsState, getVariantsActions] = useApi(variantsApi.getAllWithDetails.bind(variantsApi));
+  const [getProductsState, getProductsActions] = useApi(productsApi.getAll.bind(productsApi));
+  const [createVariantState, createVariantActions] = useApi(variantsApi.create.bind(variantsApi));
+  const [updateVariantState, updateVariantActions] = useApi(variantsApi.update.bind(variantsApi));
+  const [deleteVariantState, deleteVariantActions] = useApi(variantsApi.delete.bind(variantsApi));
+
+  // Загрузка данных при монтировании
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Обновление локального состояния при получении данных
+  useEffect(() => {
+    if (getVariantsState.data) {
+      setVariants(getVariantsState.data);
+    }
+  }, [getVariantsState.data]);
+
+  useEffect(() => {
+    if (getProductsState.data) {
+      setProducts(getProductsState.data);
+    }
+  }, [getProductsState.data]);
+
+  const loadData = async () => {
+    try {
+      await Promise.all([
+        getVariantsActions.execute(),
+        getProductsActions.execute(),
+      ]);
+    } catch (error) {
+      console.error('Ошибка загрузки данных:', error);
+    }
+  };
 
   const filteredVariants = variants.filter(variant => {
     const matchesSearch =
-      variant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      variant.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      variant.product?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      variant.price.toString().includes(searchTerm) ||
       (variant.color && variant.color.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (variant.size && variant.size.toLowerCase().includes(searchTerm.toLowerCase()));
+      (variant.size && variant.size.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (variant.material && variant.material.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesStatus = statusFilter === 'all' || variant.status === statusFilter;
-    const matchesProduct = productFilter === 'all' || variant.productId === productFilter;
+    const matchesProduct = productFilter === 'all' || (variant.product_id && variant.product_id.toString() === productFilter);
 
     let matchesStock = true;
     if (stockFilter === 'low') {
-      matchesStock = variant.stock > 0 && variant.stock < 10;
+      matchesStock = variant.stock_quantity > 0 && variant.stock_quantity < 10;
     } else if (stockFilter === 'out') {
-      matchesStock = variant.stock === 0;
+      matchesStock = variant.stock_quantity === 0;
     } else if (stockFilter === 'in-stock') {
-      matchesStock = variant.stock >= 10;
+      matchesStock = variant.stock_quantity >= 10;
     }
 
-    return matchesSearch && matchesStatus && matchesProduct && matchesStock;
+    return matchesSearch && matchesProduct && matchesStock;
   });
 
-  const generateSku = (productSku: string, color?: string, size?: string) => {
-    let sku = productSku;
-    if (color) sku += `-${color.toUpperCase().replace(/\s+/g, '')}`;
-    if (size) sku += `-${size.toUpperCase().replace(/\s+/g, '')}`;
-    return sku;
+  const handleCreate = async () => {
+    try {
+      const newVariant = await createVariantActions.execute(formData);
+      // Преобразуем ProductVariant в ProductVariantWithDetails
+      const variantWithDetails: ProductVariantWithDetails = {
+        ...newVariant,
+        product: products.find(p => p.id === newVariant.product_id)!,
+        images: []
+      };
+      setVariants([...variants, variantWithDetails]);
+      setFormData({
+        product_id: 0,
+        price: 0,
+        stock_quantity: 0,
+        color: '',
+        size: '',
+        material: '',
+      });
+      setIsCreateOpen(false);
+    } catch (error) {
+      console.error('Ошибка создания варианта:', error);
+    }
   };
 
-  const handleCreate = () => {
-    const product = getProductById(formData.productId);
-    const newVariant: ProductVariant = {
-      id: Date.now().toString(),
-      ...formData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setVariants([...variants, newVariant]);
-    setFormData({
-      productId: '',
-      name: '',
-      color: '',
-      size: '',
-      material: '',
-      price: undefined,
-      sku: '',
-      stock: 0,
-      status: 'active'
-    });
-    setIsCreateOpen(false);
-  };
-
-  const handleEdit = (variant: ProductVariant) => {
+  const handleEdit = (variant: ProductVariantWithDetails) => {
     setEditingVariant(variant);
     setFormData({
-      productId: variant.productId,
-      name: variant.name,
+      product_id: variant.product_id,
+      price: variant.price,
+      stock_quantity: variant.stock_quantity,
       color: variant.color || '',
       size: variant.size || '',
       material: variant.material || '',
-      price: variant.price,
-      sku: variant.sku,
-      stock: variant.stock,
-      status: variant.status,
     });
     setIsEditOpen(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editingVariant) return;
 
-    const updatedVariants = variants.map(variant =>
-      variant.id === editingVariant.id
-        ? { ...variant, ...formData, updatedAt: new Date() }
-        : variant
-    );
-    setVariants(updatedVariants);
-    setFormData({
-      productId: '',
-      name: '',
-      color: '',
-      size: '',
-      material: '',
-      price: undefined,
-      sku: '',
-      stock: 0,
-      status: 'active'
-    });
-    setEditingVariant(null);
-    setIsEditOpen(false);
+    try {
+      const updatedVariant = await updateVariantActions.execute(editingVariant.id, formData);
+      // Преобразуем ProductVariant в ProductVariantWithDetails
+      const variantWithDetails: ProductVariantWithDetails = {
+        ...updatedVariant,
+        product: products.find(p => p.id === updatedVariant.product_id)!,
+        images: editingVariant.images || []
+      };
+      setVariants(variants.map(variant =>
+        variant.id === editingVariant.id ? variantWithDetails : variant
+      ));
+      setFormData({
+        product_id: 0,
+        price: 0,
+        stock_quantity: 0,
+        color: '',
+        size: '',
+        material: '',
+      });
+      setEditingVariant(null);
+      setIsEditOpen(false);
+    } catch (error) {
+      console.error('Ошибка обновления варианта:', error);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteVariantActions.execute(id);
     setVariants(variants.filter(variant => variant.id !== id));
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-green-100 text-green-800">Активный</Badge>;
-      case 'inactive':
-        return <Badge className="bg-gray-100 text-gray-800">Неактивный</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
+    } catch (error) {
+      console.error('Ошибка удаления варианта:', error);
     }
   };
 
@@ -166,53 +196,37 @@ export function Variants() {
     return <Badge className="bg-green-100 text-green-800">В наличии</Badge>;
   };
 
-  const formatPrice = (price?: number) => {
-    if (!price) return '-';
+  const formatPrice = (price: number) => {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
-      currency: 'RUB',
+      currency: 'UZS',
     }).format(price);
   };
 
-  const VariantForm = ({ isEdit = false }: { isEdit?: boolean }) => {
-    const selectedProduct = formData.productId ? getProductById(formData.productId) : null;
+  const handleShowImages = (variantId: number) => {
+    navigate(`/images?variant_id=${variantId}`);
+  };
 
+  const VariantForm = ({ isEdit = false }: { isEdit?: boolean }) => {
     return (
       <div className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="product">Товар</Label>
           <Select
-            value={formData.productId}
-            onValueChange={(value) => {
-              const product = getProductById(value);
-              setFormData({
-                ...formData,
-                productId: value,
-                sku: formData.sku || (product ? generateSku(product.sku, formData.color, formData.size) : '')
-              });
-            }}
+            value={formData.product_id ? formData.product_id.toString() : ''}
+            onValueChange={(value) => setFormData({ ...formData, product_id: parseInt(value) })}
           >
             <SelectTrigger>
               <SelectValue placeholder="Выберите товар" />
             </SelectTrigger>
             <SelectContent>
-              {mockProducts.map((product) => (
-                <SelectItem key={product.id} value={product.id}>
-                  {product.name} ({product.sku})
+              {products.map((product) => (
+                <SelectItem key={product.id} value={product.id.toString()}>
+                  {product.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="name">Название варианта</Label>
-          <Input
-            id="name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Например: Футболка Premium - Белая M"
-          />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -221,14 +235,7 @@ export function Variants() {
             <Input
               id="color"
               value={formData.color}
-              onChange={(e) => {
-                const color = e.target.value;
-                setFormData({
-                  ...formData,
-                  color,
-                  sku: selectedProduct ? generateSku(selectedProduct.sku, color, formData.size) : formData.sku
-                });
-              }}
+              onChange={(e) => setFormData({ ...formData, color: e.target.value })}
               placeholder="Белый, Черный..."
             />
           </div>
@@ -238,14 +245,7 @@ export function Variants() {
             <Input
               id="size"
               value={formData.size}
-              onChange={(e) => {
-                const size = e.target.value;
-                setFormData({
-                  ...formData,
-                  size,
-                  sku: selectedProduct ? generateSku(selectedProduct.sku, formData.color, size) : formData.sku
-                });
-              }}
+              onChange={(e) => setFormData({ ...formData, size: e.target.value })}
               placeholder="S, M, L, XL или 42, 43..."
             />
           </div>
@@ -262,26 +262,15 @@ export function Variants() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="sku">SKU</Label>
+          <Label htmlFor="price">Цена (UZS)</Label>
           <Input
-            id="sku"
-            value={formData.sku}
-            onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-            placeholder="PRODUCT-001-WHITE-M"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="price">Цена (₽, опционально)</Label>
-            <Input
-              id="price"
+            id="price"
               type="number"
-              value={formData.price || ''}
-              onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) || undefined })}
-              placeholder="Оставьте пустым для цены товара"
+            value={formData.price}
+            onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) || 0 })}
+            placeholder="0"
               min="0"
-              step="0.01"
+            step="1000"
             />
           </div>
 
@@ -290,48 +279,30 @@ export function Variants() {
             <Input
               id="stock"
               type="number"
-              value={formData.stock}
-              onChange={(e) => setFormData({ ...formData, stock: Number.parseInt(e.target.value) || 0 })}
+            value={formData.stock_quantity}
+            onChange={(e) => setFormData({ ...formData, stock_quantity: parseInt(e.target.value) || 0 })}
               placeholder="0"
               min="0"
             />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="status">Статус</Label>
-          <Select value={formData.status} onValueChange={(value: 'active' | 'inactive') => setFormData({ ...formData, status: value })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Активный</SelectItem>
-              <SelectItem value="inactive">Неактивный</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         <div className="flex justify-end space-x-2">
           <Button
             variant="outline"
             onClick={() => {
-              setFormData({
-                productId: '',
-                name: '',
-                color: '',
-                size: '',
-                material: '',
-                price: undefined,
-                sku: '',
-                stock: 0,
-                status: 'active'
-              });
+              setFormData({ product_id: 0, price: 0, stock_quantity: 0, color: '', size: '', material: '' });
               isEdit ? setIsEditOpen(false) : setIsCreateOpen(false);
             }}
           >
             Отмена
           </Button>
-          <Button onClick={isEdit ? handleUpdate : handleCreate}>
+          <Button 
+            onClick={isEdit ? handleUpdate : handleCreate}
+            disabled={createVariantState.loading || updateVariantState.loading}
+          >
+            {(createVariantState.loading || updateVariantState.loading) && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
             {isEdit ? 'Обновить' : 'Создать'}
           </Button>
         </div>
@@ -339,12 +310,19 @@ export function Variants() {
     );
   };
 
-  const stats = {
-    total: variants.length,
-    active: variants.filter(v => v.status === 'active').length,
-    lowStock: variants.filter(v => v.stock < 10 && v.stock > 0).length,
-    outOfStock: variants.filter(v => v.stock === 0).length,
-  };
+  if (getVariantsState.loading || getProductsState.loading) {
+    return <LoadingState message="Загрузка данных..." />;
+  }
+
+  if (getVariantsState.error || getProductsState.error) {
+    return (
+      <ApiError 
+        error={getVariantsState.error || getProductsState.error!} 
+        onRetry={loadData}
+        title="Ошибка загрузки данных"
+      />
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -356,7 +334,7 @@ export function Variants() {
             <span>Варианты товаров</span>
           </h1>
           <p className="text-gray-600 mt-1">
-            Управление вариантами товаров (цвет, размер, материал)
+            Управление вариантами товаров и их характеристиками
           </p>
         </div>
 
@@ -367,11 +345,11 @@ export function Variants() {
               Добавить вариант
             </Button>
           </SheetTrigger>
-          <SheetContent className="w-[500px] sm:w-[540px]">
+          <SheetContent>
             <SheetHeader>
-              <SheetTitle>Создать вариант</SheetTitle>
+              <SheetTitle>Создать вариант товара</SheetTitle>
               <SheetDescription>
-                Добавьте новый вариант для существующего товара
+                Заполните информацию для нового варианта товара
               </SheetDescription>
             </SheetHeader>
             <div className="mt-6">
@@ -386,30 +364,32 @@ export function Variants() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Всего вариантов</CardTitle>
+            <Palette className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="text-2xl font-bold">{variants.length}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Активных</CardTitle>
+            <CardTitle className="text-sm font-medium">В наличии</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {variants.filter(v => v.stock_quantity > 0).length}
+            </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium flex items-center">
-              <AlertTriangle className="h-4 w-4 mr-1 text-orange-500" />
-              Мало на складе
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Мало товара</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.lowStock}</div>
+            <div className="text-2xl font-bold text-orange-600">
+              {variants.filter(v => v.stock_quantity > 0 && v.stock_quantity < 10).length}
+            </div>
           </CardContent>
         </Card>
 
@@ -418,7 +398,9 @@ export function Variants() {
             <CardTitle className="text-sm font-medium">Нет в наличии</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.outOfStock}</div>
+            <div className="text-2xl font-bold text-red-600">
+              {variants.filter(v => v.stock_quantity === 0).length}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -429,59 +411,42 @@ export function Variants() {
           <CardTitle>Поиск и фильтры</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center space-x-4 flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px]">
+          <div className="flex items-center space-x-4">
+            <div className="relative flex-1">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
               <Input
-                placeholder="Поиск по названию, SKU, цвету, размеру..."
+                placeholder="Поиск по товару, цене, цвету, размеру, материалу..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8"
               />
             </div>
 
-            <div className="w-40">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Статус" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все статусы</SelectItem>
-                  <SelectItem value="active">Активные</SelectItem>
-                  <SelectItem value="inactive">Неактивные</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="w-48">
               <Select value={productFilter} onValueChange={setProductFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Товар" />
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Все товары" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Все товары</SelectItem>
-                  {mockProducts.map((product) => (
-                    <SelectItem key={product.id} value={product.id}>
+                {products.map((product) => (
+                  <SelectItem key={product.id} value={product.id.toString()}>
                       {product.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
 
-            <div className="w-40">
               <Select value={stockFilter} onValueChange={setStockFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Остатки" />
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Все варианты" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Все</SelectItem>
+                <SelectItem value="all">Все варианты</SelectItem>
                   <SelectItem value="in-stock">В наличии</SelectItem>
-                  <SelectItem value="low">Мало</SelectItem>
+                <SelectItem value="low">Мало товара</SelectItem>
                   <SelectItem value="out">Нет в наличии</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -498,90 +463,72 @@ export function Variants() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Вариант</TableHead>
+                <TableHead>ID</TableHead>
                 <TableHead>Товар</TableHead>
-                <TableHead>Атрибуты</TableHead>
-                <TableHead>SKU</TableHead>
+                <TableHead>Цвет</TableHead>
+                <TableHead>Размер</TableHead>
+                <TableHead>Материал</TableHead>
                 <TableHead>Цена</TableHead>
                 <TableHead>Остаток</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead>Изображения</TableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredVariants.map((variant) => {
-                const product = getProductById(variant.productId);
-                const images = getImagesByVariantId(variant.id);
-                return (
+              {filteredVariants.map((variant) => (
                   <TableRow key={variant.id}>
+                  <TableCell className="font-medium">{variant.id}</TableCell>
                     <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-medium">{variant.name}</div>
-                        {images.length > 0 && (
-                          <div className="text-sm text-green-600">
-                            📷 {images.length} изображений
+                    <div>
+                      <div className="font-medium">{variant.product?.name || '-'}</div>
+                      <div className="text-sm text-gray-500">
+                        ID товара: {variant.product_id}
                           </div>
-                        )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      {product ? (
-                        <div className="space-y-1">
-                          <div className="font-medium">{product.name}</div>
-                          <Badge variant="outline">{product.sku}</Badge>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">Товар не найден</span>
-                      )}
+                    {variant.color || '-'}
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-1">
-                        {variant.color && (
-                          <div className="text-sm">
-                            <span className="font-medium">Цвет:</span> {variant.color}
-                          </div>
-                        )}
-                        {variant.size && (
-                          <div className="text-sm">
-                            <span className="font-medium">Размер:</span> {variant.size}
-                          </div>
-                        )}
-                        {variant.material && (
-                          <div className="text-sm">
-                            <span className="font-medium">Материал:</span> {variant.material}
-                          </div>
-                        )}
-                      </div>
+                    {variant.size || '-'}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{variant.sku}</Badge>
+                    <div className="max-w-xs truncate" title={variant.material}>
+                      {variant.material || '-'}
+                    </div>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {variant.price ? formatPrice(variant.price) :
-                        product ? formatPrice(product.price) : '-'}
+                    {formatPrice(variant.price)}
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-medium">{variant.stock}</div>
-                        {getStockBadge(variant.stock)}
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium">{variant.stock_quantity}</span>
+                      {variant.stock_quantity === 0 && (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(variant.status)}
+                    {getStockBadge(variant.stock_quantity)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end space-x-2">
+                  <TableCell>
+                    <div className="flex items-center justify-start space-x-2">
+                      <Badge variant="secondary">{variant.images?.length || 0} шт.</Badge>
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            // TODO: Реализовать просмотр деталей варианта
-                            alert(`Просмотр варианта: ${variant.name}`);
-                          }}
+                        onClick={() => handleShowImages(variant.id)}
+                        disabled={(variant.images?.length || 0) === 0}
                         >
-                          <Eye className="h-4 w-4" />
+                        Показать
                         </Button>
-
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end space-x-2">
+                      <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
+                        <SheetTrigger asChild>
                         <Button
                           variant="outline"
                           size="sm"
@@ -589,18 +536,32 @@ export function Variants() {
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
+                        </SheetTrigger>
+                        <SheetContent>
+                          <SheetHeader>
+                            <SheetTitle>Редактировать вариант</SheetTitle>
+                            <SheetDescription>
+                              Измените информацию о варианте товара
+                            </SheetDescription>
+                          </SheetHeader>
+                          <div className="mt-6">
+                            <VariantForm isEdit />
+                          </div>
+                        </SheetContent>
+                      </Sheet>
 
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                          <Button variant="outline" size="sm">
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Удалить вариант?</AlertDialogTitle>
+                            <AlertDialogTitle>Удалить вариант</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Это действие нельзя отменить. Вариант "{variant.name}" будет удален навсегда.
+                              Вы уверены, что хотите удалить этот вариант товара? 
+                              Это действие нельзя отменить.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -608,7 +569,11 @@ export function Variants() {
                               <AlertDialogAction
                                 onClick={() => handleDelete(variant.id)}
                                 className="bg-red-600 hover:bg-red-700"
+                              disabled={deleteVariantState.loading}
                               >
+                              {deleteVariantState.loading && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
                                 Удалить
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -617,27 +582,11 @@ export function Variants() {
                       </div>
                     </TableCell>
                   </TableRow>
-                );
-              })}
+              ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
-
-      {/* Edit Sheet */}
-      <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <SheetContent className="w-[500px] sm:w-[540px]">
-          <SheetHeader>
-            <SheetTitle>Редактировать вариант</SheetTitle>
-            <SheetDescription>
-              Измените параметры варианта товара
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-6">
-            <VariantForm isEdit />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

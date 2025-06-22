@@ -1,50 +1,49 @@
-export interface Category {
-  id: string;
+export interface ProductCategory {
+  id: number;
   name: string;
   slug: string;
-  updatedAt: Date;
 }
 
 export interface Product {
-  id: string;
+  id: number;
   name: string;
+  slug: string;
   description: string;
-  categoryId: string;
-  category?: Category;
-  status: 'active' | 'inactive' | 'draft';
+  category_id: number;
   is_active: boolean;
   is_new: boolean;
   is_discounted: boolean;
-  updatedAt: Date;
+  category?: ProductCategory;
   variants?: ProductVariant[];
 }
 
 export interface ProductVariant {
-  id: string;
-  productId: string;
-  product?: Product;
+  id: number;
+  product_id: number;
+  price: number;
+  stock_quantity: number;
   color?: string;
   size?: string;
   material?: string;
-  price?: number; // В сумах (UZS)
-  stock: number;
-  status: 'active' | 'inactive';
-  createdAt: Date;
-  updatedAt: Date;
+  product?: Product;
   images?: ProductImage[];
 }
 
 export interface ProductImage {
-  id: string;
-  variantId: string;
-  variant?: ProductVariant;
+  id: number;
+  variant_id: number;
   url: string;
-  filename: string;
-  size: number; // в байтах
-  mimeType: string;
-  isMain: boolean; // главное изображение для варианта
-  order: number; // порядок отображения
-  createdAt: Date;
+  is_main: boolean;
+  variant?: ProductVariant;
+  filename?: string;
+  size?: number;
+  order?: number;
+}
+
+// Расширенный тип для варианта с полными данными
+export interface ProductVariantWithDetails extends ProductVariant {
+  product: Product;
+  images: ProductImage[];
 }
 
 // Типы для форм
@@ -55,22 +54,27 @@ export interface CategoryFormData {
 
 export interface ProductFormData {
   name: string;
+  slug: string;
   description: string;
-  categoryId: string;
-  status: 'active' | 'inactive' | 'draft';
+  category_id: number;
   is_active: boolean;
   is_new: boolean;
   is_discounted: boolean;
 }
 
 export interface ProductVariantFormData {
-  productId: string;
+  product_id: number;
+  price: number;
+  stock_quantity: number;
   color?: string;
   size?: string;
   material?: string;
-  price?: number;
-  stock: number;
-  status: 'active' | 'inactive';
+}
+
+export interface ProductImageFormData {
+  variant_id: number;
+  is_main: boolean;
+  file: File;
 }
 
 // Типы для таблиц и фильтров
@@ -89,7 +93,7 @@ export interface TableAction {
 }
 
 export interface FilterOptions {
-  categories?: Category[];
+  categories?: ProductCategory[];
   statuses?: string[];
   search?: string;
 }

@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   AlertDialog,
@@ -24,22 +23,49 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { mockCategories } from '@/data/mockData';
-import type { Category, CategoryFormData } from '@/types';
-import { Plus, Edit, Trash2, Search, Tag } from 'lucide-react';
+import { LoadingState } from '@/components/ui/loading-state';
+import { ApiError } from '@/components/ui/api-error';
+import { useApi } from '@/hooks/use-api';
+import { categoriesApi } from '@/services/categories-api';
+import type { ProductCategory, CategoryFormData } from '@/types';
+import { Plus, Edit, Trash2, Search, Tag, Loader2 } from 'lucide-react';
 
 export function Categories() {
-  const [categories, setCategories] = useState<Category[]>(mockCategories);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
   const [formData, setFormData] = useState<CategoryFormData>({
     name: '',
-    description: '',
     slug: '',
   });
+
+  // API хуки
+  const [getCategoriesState, getCategoriesActions] = useApi(categoriesApi.getAll.bind(categoriesApi));
+  const [createCategoryState, createCategoryActions] = useApi(categoriesApi.create.bind(categoriesApi));
+  const [updateCategoryState, updateCategoryActions] = useApi(categoriesApi.update.bind(categoriesApi));
+  const [deleteCategoryState, deleteCategoryActions] = useApi(categoriesApi.delete.bind(categoriesApi));
+
+  // Загрузка категорий при монтировании
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  // Обновление локального состояния при получении данных
+  useEffect(() => {
+    if (getCategoriesState.data) {
+      setCategories(getCategoriesState.data);
+    }
+  }, [getCategoriesState.data]);
+
+  const loadCategories = async () => {
+    try {
+      await getCategoriesActions.execute();
+    } catch (error) {
+      console.error('Ошибка загрузки категорий:', error);
+    }
+  };
 
   const filteredCategories = categories.filter(category =>
     category.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -64,44 +90,49 @@ export function Categories() {
       .trim();
   };
 
-  const handleCreate = () => {
-    const newCategory: Category = {
-      id: Date.now().toString(),
-      ...formData,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+  const handleCreate = async () => {
+    try {
+      const newCategory = await createCategoryActions.execute(formData);
     setCategories([...categories, newCategory]);
-    setFormData({ name: '', description: '', slug: '' });
+      setFormData({ name: '', slug: '' });
     setIsCreateOpen(false);
+    } catch (error) {
+      console.error('Ошибка создания категории:', error);
+    }
   };
 
-  const handleEdit = (category: Category) => {
+  const handleEdit = (category: ProductCategory) => {
     setEditingCategory(category);
     setFormData({
       name: category.name,
-      description: category.description || '',
       slug: category.slug,
     });
     setIsEditOpen(true);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (!editingCategory) return;
 
-    const updatedCategories = categories.map(category =>
-      category.id === editingCategory.id
-        ? { ...category, ...formData, updatedAt: new Date() }
-        : category
-    );
-    setCategories(updatedCategories);
-    setFormData({ name: '', description: '', slug: '' });
+    try {
+      const updatedCategory = await updateCategoryActions.execute(editingCategory.id, formData);
+      setCategories(categories.map(category =>
+        category.id === editingCategory.id ? updatedCategory : category
+      ));
+      setFormData({ name: '', slug: '' });
     setEditingCategory(null);
     setIsEditOpen(false);
+    } catch (error) {
+      console.error('Ошибка обновления категории:', error);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteCategoryActions.execute(id);
     setCategories(categories.filter(category => category.id !== id));
+    } catch (error) {
+      console.error('Ошибка удаления категории:', error);
+    }
   };
 
   const CategoryForm = ({ isEdit = false }: { isEdit?: boolean }) => (
@@ -133,33 +164,42 @@ export function Categories() {
         />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="description">Описание</Label>
-        <Textarea
-          id="description"
-          value={formData.description}
-          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          placeholder="Введите описание категории (необязательно)"
-          rows={3}
-        />
-      </div>
-
       <div className="flex justify-end space-x-2">
         <Button
           variant="outline"
           onClick={() => {
-            setFormData({ name: '', description: '', slug: '' });
+            setFormData({ name: '', slug: '' });
             isEdit ? setIsEditOpen(false) : setIsCreateOpen(false);
           }}
         >
           Отмена
         </Button>
-        <Button onClick={isEdit ? handleUpdate : handleCreate}>
+        <Button 
+          onClick={isEdit ? handleUpdate : handleCreate}
+          disabled={createCategoryState.loading || updateCategoryState.loading}
+        >
+          {(createCategoryState.loading || updateCategoryState.loading) && (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          )}
           {isEdit ? 'Обновить' : 'Создать'}
         </Button>
       </div>
     </div>
   );
+
+  if (getCategoriesState.loading) {
+    return <LoadingState message="Загрузка категорий..." />;
+  }
+
+  if (getCategoriesState.error) {
+    return (
+      <ApiError 
+        error={getCategoriesState.error} 
+        onRetry={loadCategories}
+        title="Ошибка загрузки категорий"
+      />
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -201,52 +241,28 @@ export function Categories() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Всего категорий</CardTitle>
+            <Tag className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{categories.length}</div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Активных</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{categories.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Найдено</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredCategories.length}</div>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* Search and Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Поиск и фильтры</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Search */}
           <div className="flex items-center space-x-2">
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
                 placeholder="Поиск по названию или slug..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8"
+            className="pl-10"
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Categories Table */}
+      {/* Table */}
       <Card>
         <CardHeader>
           <CardTitle>Список категорий</CardTitle>
@@ -258,34 +274,26 @@ export function Categories() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>ID</TableHead>
                 <TableHead>Название</TableHead>
                 <TableHead>Slug</TableHead>
-                <TableHead>Описание</TableHead>
-                <TableHead>Создано</TableHead>
-                <TableHead>Статус</TableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredCategories.map((category) => (
                 <TableRow key={category.id}>
-                  <TableCell className="font-medium">{category.name}</TableCell>
+                  <TableCell className="font-medium">{category.id}</TableCell>
+                  <TableCell>{category.name}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{category.slug}</Badge>
-                  </TableCell>
-                  <TableCell className="max-w-xs truncate">
-                    {category.description || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {category.createdAt.toLocaleDateString('ru-RU')}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="default" className="bg-green-100 text-green-800">
-                      Активна
-                    </Badge>
+                    <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                      {category.slug}
+                    </code>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end space-x-2">
+                      <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
+                        <SheetTrigger asChild>
                       <Button
                         variant="outline"
                         size="sm"
@@ -293,18 +301,32 @@ export function Categories() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                        </SheetTrigger>
+                        <SheetContent>
+                          <SheetHeader>
+                            <SheetTitle>Редактировать категорию</SheetTitle>
+                            <SheetDescription>
+                              Измените информацию о категории
+                            </SheetDescription>
+                          </SheetHeader>
+                          <div className="mt-6">
+                            <CategoryForm isEdit />
+                          </div>
+                        </SheetContent>
+                      </Sheet>
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700">
+                          <Button variant="outline" size="sm">
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Удалить категорию?</AlertDialogTitle>
+                            <AlertDialogTitle>Удалить категорию</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Это действие нельзя отменить. Категория "{category.name}" будет удалена навсегда.
+                              Вы уверены, что хотите удалить категорию "{category.name}"? 
+                              Это действие нельзя отменить.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -312,7 +334,11 @@ export function Categories() {
                             <AlertDialogAction
                               onClick={() => handleDelete(category.id)}
                               className="bg-red-600 hover:bg-red-700"
+                              disabled={deleteCategoryState.loading}
                             >
+                              {deleteCategoryState.loading && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
                               Удалить
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -326,21 +352,6 @@ export function Categories() {
           </Table>
         </CardContent>
       </Card>
-
-      {/* Edit Sheet */}
-      <Sheet open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Редактировать категорию</SheetTitle>
-            <SheetDescription>
-              Измените информацию о категории
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-6">
-            <CategoryForm isEdit />
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

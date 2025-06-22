@@ -1,19 +1,81 @@
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { mockCategories, mockProducts, mockVariants, mockImages } from '@/data/mockData';
+import { LoadingState } from '@/components/ui/loading-state';
+import { ApiError } from '@/components/ui/api-error';
+import { useApi } from '@/hooks/use-api';
+import { categoriesApi } from '@/services/categories-api';
+import { productsApi } from '@/services/products-api';
+import { variantsApi } from '@/services/variants-api';
+import { imagesApi } from '@/services/images-api';
 import { Package, Tags, Palette, Images, TrendingUp, AlertTriangle } from 'lucide-react';
 
+interface DashboardStats {
+  categories: number;
+  products: number;
+  variants: number;
+  images: number;
+  activeProducts: number;
+  draftProducts: number;
+  lowStockVariants: number;
+  outOfStockVariants: number;
+}
+
 export function Dashboard() {
-  const stats = {
-    categories: mockCategories.length,
-    products: mockProducts.length,
-    variants: mockVariants.length,
-    images: mockImages.length,
-    activeProducts: mockProducts.filter(p => p.status === 'active').length,
-    draftProducts: mockProducts.filter(p => p.status === 'draft').length,
-    lowStockVariants: mockVariants.filter(v => v.stock < 10).length,
-    outOfStockVariants: mockVariants.filter(v => v.stock === 0).length,
+  const [stats, setStats] = useState<DashboardStats>({
+    categories: 0,
+    products: 0,
+    variants: 0,
+    images: 0,
+    activeProducts: 0,
+    draftProducts: 0,
+    lowStockVariants: 0,
+    outOfStockVariants: 0,
+  });
+
+  const [categoriesState, categoriesActions] = useApi(categoriesApi.getAll.bind(categoriesApi));
+  const [productsState, productsActions] = useApi(productsApi.getAll.bind(productsApi));
+  const [variantsState, variantsActions] = useApi(variantsApi.getAll.bind(variantsApi));
+  const [imagesState, imagesActions] = useApi(imagesApi.getAll.bind(imagesApi));
+
+  const loadData = async () => {
+    try {
+      const [categories, products, variants, images] = await Promise.all([
+        categoriesActions.execute(),
+        productsActions.execute(),
+        variantsActions.execute(),
+        imagesActions.execute(),
+      ]);
+
+      setStats({
+        categories: categories.length,
+        products: products.length,
+        variants: variants.length,
+        images: images.length,
+        activeProducts: products.filter((p: any) => p.is_active).length,
+        draftProducts: products.filter((p: any) => !p.is_active).length,
+        lowStockVariants: variants.filter((v: any) => v.stock_quantity < 10 && v.stock_quantity > 0).length,
+        outOfStockVariants: variants.filter((v: any) => v.stock_quantity === 0).length,
+      });
+    } catch (error) {
+      console.error('Ошибка загрузки статистики:', error);
+    }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const isLoading = categoriesState.loading || productsState.loading || variantsState.loading || imagesState.loading;
+  const hasError = categoriesState.error || productsState.error || variantsState.error || imagesState.error;
+
+  if (isLoading && stats.categories === 0) {
+    return <LoadingState message="Загрузка статистики..." />;
+  }
+
+  if (hasError) {
+    return <ApiError error={hasError} onRetry={loadData} />;
+  }
 
   const quickStats = [
     {
