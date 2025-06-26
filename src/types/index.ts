@@ -9,11 +9,10 @@ export interface Product {
   name: string;
   slug: string;
   description: string;
-  category_id: number;
   is_active: boolean;
   is_new: boolean;
   is_discounted: boolean;
-  category?: ProductCategory;
+  category: ProductCategory;
   variants?: ProductVariant[];
 }
 
@@ -22,9 +21,9 @@ export interface ProductVariant {
   product_id: number;
   price: number;
   stock_quantity: number;
-  color?: string;
-  size?: string;
-  material?: string;
+  color?: string | null;
+  size?: string | null;
+  material?: string | null;
   product?: Product;
   images?: ProductImage[];
 }
@@ -35,26 +34,62 @@ export interface ProductImage {
   url: string;
   is_main: boolean;
   variant?: ProductVariant;
-  filename?: string;
-  size?: number;
-  order?: number;
 }
 
-// Расширенный тип для варианта с полными данными
+// Расширенный тип для варианта с полными данными (согласно swagger.json)
 export interface ProductVariantWithDetails extends ProductVariant {
   product: Product;
   images: ProductImage[];
 }
 
-// Типы для форм
-export interface CategoryFormData {
+// Типы для API запросов (согласно swagger.json)
+export interface ProductCreate {
   name: string;
-  slug: string;
+  description?: string | null;
+  category_id: number;
+  is_active?: boolean | null;
+  is_new?: boolean | null;
+  is_discounted?: boolean | null;
 }
 
+export interface ProductUpdate {
+  name?: string | null;
+  description?: string | null;
+  category_id?: number | null;
+  is_active?: boolean | null;
+  is_new?: boolean | null;
+  is_discounted?: boolean | null;
+}
+
+export interface ProductVariantCreate {
+  product_id: number;
+  price: number;
+  stock_quantity?: number | null;
+  color?: string | null;
+  size?: string | null;
+  material?: string | null;
+}
+
+export interface ProductVariantUpdate {
+  product_id?: number | null;
+  price?: number | null;
+  stock_quantity?: number | null;
+  color?: string | null;
+  size?: string | null;
+  material?: string | null;
+}
+
+export interface ProductCategoryCreate {
+  name: string;
+}
+
+export interface ProductCategoryUpdate {
+  name?: string | null;
+}
+
+// Типы для форм (для внутреннего использования)
 export interface ProductFormData {
   name: string;
-  slug: string;
   description: string;
   category_id: number;
   is_active: boolean;
@@ -71,38 +106,31 @@ export interface ProductVariantFormData {
   material?: string;
 }
 
-export interface ProductImageFormData {
+export interface CategoryFormData {
+  name: string;
+}
+
+// Типы для пагинации
+export interface PaginationParams {
+  skip?: number;
+  limit?: number;
+}
+
+// Типы для ошибок API (согласно swagger.json)
+export interface ValidationError {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
+
+// Типы для API запросов изображений (согласно swagger.json)
+export interface ImageCreateRequest {
   variant_id: number;
   is_main: boolean;
   file: File;
 }
 
-// Типы для таблиц и фильтров
-export interface TableColumn {
-  key: string;
-  label: string;
-  sortable?: boolean;
-  width?: string;
-}
-
-export interface TableAction {
-  label: string;
-  icon?: React.ReactNode;
-  onClick: (item: any) => void;
-  variant?: 'default' | 'destructive' | 'outline';
-}
-
-export interface FilterOptions {
-  categories?: ProductCategory[];
-  statuses?: string[];
-  search?: string;
-}
-
-// Тип для загрузки файлов
-export interface FileUpload {
-  file: File;
-  preview: string;
-  id: string;
-  progress?: number;
-  error?: string;
+export interface ImageUpdateRequest {
+  is_main?: boolean | null;
+  file?: File | null;
 }

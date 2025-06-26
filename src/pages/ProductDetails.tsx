@@ -5,7 +5,7 @@ import { productsApi } from "@/services/products-api";
 import { variantsApi } from "@/services/variants-api";
 import { useApi } from "@/hooks/use-api";
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,17 +13,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { getImageUrl } from "@/config/api";
 import { categoriesApi } from "@/services/categories-api";
 import type { Product, ProductCategory, ProductImage, ProductVariant } from "@/types";
-import { Package, Edit, Save, X, Image as ImageIcon } from "lucide-react";
+import { Package, Edit, Save, X, ArrowLeft } from "lucide-react";
 import { VariantManager } from "./VariantManager";
+import { Link } from "react-router-dom";
 
 interface ProductDetailsProps {
   productId: number;
+  showBackButton?: boolean;
 }
 
-export function ProductDetails({ productId }: ProductDetailsProps) {
+export function ProductDetails({ productId, showBackButton = true }: ProductDetailsProps) {
   const [productState, productActions] = useApi(productsApi.getById.bind(productsApi));
   const [categoriesState, categoriesActions] = useApi(categoriesApi.getAll.bind(categoriesApi));
   const [variantsState, variantsActions] = useApi(variantsApi.getByProductId.bind(variantsApi));
@@ -54,6 +55,12 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
     }
   }
 
+  // Функция для обновления всех данных после изменений
+  const refreshAllData = () => {
+    fetchProduct();
+    fetchVariants();
+  }
+
   useEffect(() => {
     fetchProduct();
     fetchCategories();
@@ -67,7 +74,7 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
         name: product.name,
         slug: product.slug,
         description: product.description,
-        category_id: product.category_id,
+        category_id: product.category.id,
         is_active: product.is_active,
         is_new: product.is_new,
         is_discounted: product.is_discounted,
@@ -85,7 +92,7 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
       };
       await productsApi.update(productId, formData);
       setIsEditing(false);
-      fetchProduct();
+      refreshAllData();
     } catch (error) {
       console.error('Ошибка обновления товара:', error);
     }
@@ -98,7 +105,7 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
         name: product.name,
         slug: product.slug,
         description: product.description,
-        category_id: product.category_id,
+        category_id: product.category.id,
         is_active: product.is_active,
         is_new: product.is_new,
         is_discounted: product.is_discounted,
@@ -108,16 +115,47 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
   };
 
   if (productState.loading) {
-    return <div className="p-6"><LoadingState message="Загрузка деталей товара..." /></div>;
+    return (
+      <div className="p-6">
+        {showBackButton && (
+          <div className="mb-4">
+            <Link to="/products">
+              <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                <ArrowLeft className="h-4 w-4" />
+                <span>Назад к товарам</span>
+              </Button>
+            </Link>
+          </div>
+        )}
+        <LoadingState message="Загрузка деталей товара..." />
+      </div>
+    );
   }
 
   if (productState.error) {
-    return <div className="p-6"><ApiError error={productState.error} onRetry={fetchProduct} /></div>;
+    return (
+      <div className="p-6">
+        {showBackButton && (
+          <div className="mb-4">
+            <Link to="/products">
+              <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                <ArrowLeft className="h-4 w-4" />
+                <span>Назад к товарам</span>
+              </Button>
+            </Link>
+          </div>
+        )}
+        <ApiError error={productState.error} onRetry={fetchProduct} />
+      </div>
+    );
   }
   
   const product = productState.data as Product;
   const categories = categoriesState.data as ProductCategory[] || [];
-  const variants = variantsState.data as ProductVariant[] || [];
+  const hasVariantsError = variantsState.error && variantsState.error.status !== 404;
+  
+  // Если 404 - считаем что вариантов нет (пустой массив)
+  const variants = variantsState.error?.status === 404 ? [] : (variantsState.data as ProductVariant[] || []);
 
   if (!product) return null;
 
@@ -131,6 +169,18 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
 
   return (
     <div className="bg-slate-50 p-4 border-t">
+      {/* Back Button */}
+      {showBackButton && (
+        <div className="mb-4">
+          <Link to="/products">
+            <Button variant="outline" size="sm" className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Назад к товарам</span>
+            </Button>
+          </Link>
+        </div>
+      )}
+
       {/* Product Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
@@ -152,62 +202,52 @@ export function ProductDetails({ productId }: ProductDetailsProps) {
       </div>
 
       <Tabs defaultValue="variants">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="variants">Варианты ({variants.length})</TabsTrigger>
-          <TabsTrigger value="images">Изображения ({allImages.length})</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="variants">
+            Варианты {variantsState.loading ? '...' : `(${variants.length})`}
+          </TabsTrigger>
           <TabsTrigger value="edit">Редактировать</TabsTrigger>
           <TabsTrigger value="info">Информация</TabsTrigger>
         </TabsList>
         
         <TabsContent value="variants" className="mt-6">
-          <VariantManager 
-            product={product} 
-            variants={variants}
-            onVariantsChange={() => {
-              fetchProduct();
-              fetchVariants();
-            }} 
-          />
-        </TabsContent>
-        
-        <TabsContent value="images" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <ImageIcon className="h-5 w-5" />
-                <span>Изображения товара</span>
-              </CardTitle>
-              <CardDescription>
-                Все изображения вариантов товара "{product.name}"
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {allImages.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {allImages.map(image => (
-                    <div key={image.id} className="relative group">
-                      <img 
-                        src={getImageUrl(image.url)} 
-                        alt={`Изображение ${image.id}`}
-                        className="w-full h-32 object-cover rounded-lg"
-                      />
-                      {image.is_main && (
-                        <Badge className="absolute top-2 left-2 bg-yellow-400 text-black text-xs">
-                          Главное
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <ImageIcon className="mx-auto h-12 w-12" />
-                  <p className="mt-4">Изображений нет</p>
-                  <p className="text-sm">Добавьте варианты товара, чтобы загружать изображения</p>
+          {variantsState.loading ? (
+            <div className="p-6">
+              {showBackButton && (
+                <div className="mb-4">
+                  <Link to="/products">
+                    <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Назад к товарам</span>
+                    </Button>
+                  </Link>
                 </div>
               )}
-            </CardContent>
-          </Card>
+              <LoadingState message="Загрузка вариантов..." />
+            </div>
+          ) : hasVariantsError ? (
+            <div className="p-6">
+              {showBackButton && (
+                <div className="mb-4">
+                  <Link to="/products">
+                    <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Назад к товарам</span>
+                    </Button>
+                  </Link>
+                </div>
+              )}
+              <ApiError error={variantsState.error!} onRetry={fetchVariants} />
+            </div>
+          ) : (
+            <VariantManager 
+              product={product} 
+              variants={variants}
+              onVariantsChange={() => {
+                refreshAllData();
+              }} 
+            />
+          )}
         </TabsContent>
         
         <TabsContent value="edit" className="mt-6">

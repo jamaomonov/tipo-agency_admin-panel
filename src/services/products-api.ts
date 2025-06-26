@@ -1,15 +1,8 @@
 import { apiClient } from '@/lib/api-client';
 import { API_ENDPOINTS } from '@/config/api';
-import type { Product, ProductFormData } from '@/types';
+import type { Product, ProductCreate, ProductUpdate, PaginationParams } from '@/types';
 
-// Согласно Swagger, ProductCreate и ProductUpdate - это ProductFormData
-type ProductCreate = ProductFormData;
-type ProductUpdate = Partial<ProductFormData>;
-
-export interface ProductsListParams {
-  skip?: number;
-  limit?: number;
-}
+export interface ProductsListParams extends PaginationParams {}
 
 export class ProductsApiService {
   // Получить все товары с пагинацией
@@ -33,25 +26,14 @@ export class ProductsApiService {
   }
 
   // Создать новый товар
-  async create(data: ProductFormData): Promise<Product> {
-    const requestData: ProductCreate = {
-      name: data.name,
-      slug: data.slug,
-      description: data.description,
-      category_id: data.category_id,
-      is_active: data.is_active,
-      is_new: data.is_new,
-      is_discounted: data.is_discounted,
-    };
-    const response = await apiClient.post<Product>(API_ENDPOINTS.products, requestData);
+  async create(data: ProductCreate): Promise<Product> {
+    const response = await apiClient.post<Product>(API_ENDPOINTS.products, data);
     return response.data;
   }
 
   // Обновить товар
-  async update(id: number, data: ProductFormData): Promise<Product> {
-    // Отправляем только измененные поля, как ожидает ProductUpdate
-    const requestData: ProductUpdate = data;
-    const response = await apiClient.put<Product>(API_ENDPOINTS.product(id), requestData);
+  async update(id: number, data: ProductUpdate): Promise<Product> {
+    const response = await apiClient.put<Product>(API_ENDPOINTS.product(id), data);
     return response.data;
   }
 

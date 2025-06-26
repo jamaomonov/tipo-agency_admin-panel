@@ -1,10 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import { API_ENDPOINTS } from '@/config/api';
-import type { ProductCategory, CategoryFormData } from '@/types';
-
-// Согласно Swagger, CategoryCreate и CategoryUpdate
-type CategoryCreate = CategoryFormData;
-type CategoryUpdate = Partial<CategoryFormData>;
+import type { ProductCategory, ProductCategoryCreate, ProductCategoryUpdate } from '@/types';
 
 export interface CategoryCreateRequest {
   name: string;
@@ -28,16 +24,14 @@ export class CategoriesApiService {
   }
 
   // Создать новую категорию
-  async create(data: CategoryFormData): Promise<ProductCategory> {
-    const requestData: CategoryCreate = data;
-    const response = await apiClient.post<ProductCategory>(API_ENDPOINTS.categories, requestData);
+  async create(data: ProductCategoryCreate): Promise<ProductCategory> {
+    const response = await apiClient.post<ProductCategory>(API_ENDPOINTS.categories, data);
     return response.data;
   }
 
   // Обновить категорию
-  async update(id: number, data: CategoryFormData): Promise<ProductCategory> {
-    const requestData: CategoryUpdate = data;
-    const response = await apiClient.put<ProductCategory>(API_ENDPOINTS.category(id), requestData);
+  async update(id: number, data: ProductCategoryUpdate): Promise<ProductCategory> {
+    const response = await apiClient.put<ProductCategory>(API_ENDPOINTS.category(id), data);
     return response.data;
   }
 

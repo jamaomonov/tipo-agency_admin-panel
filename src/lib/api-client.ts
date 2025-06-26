@@ -1,4 +1,5 @@
 import { API_CONFIG, getFullUrl } from '@/config/api';
+import type { ValidationError } from '@/types';
 
 export interface ApiResponse<T> {
   data: T;
@@ -10,6 +11,7 @@ export interface ApiError {
   message: string;
   status: number;
   errors?: Record<string, string[]>;
+  validationErrors?: ValidationError[];
 }
 
 class ApiClient {
@@ -40,17 +42,39 @@ class ApiClient {
       const response = await fetch(url, options);
 
       if (!response.ok) {
-        let errorData;
+        let errorData: any;
         try {
           errorData = await response.json();
         } catch (e) {
           errorData = { message: 'Произошла ошибка на сервере.' };
         }
+        
+        // Обработка ошибок валидации (422)
+        if (response.status === 422 && errorData.detail) {
+          const validationErrors = errorData.detail as ValidationError[];
+          const fieldErrors: Record<string, string[]> = {};
+          
+          validationErrors.forEach(error => {
+            const field = error.loc[error.loc.length - 1] as string;
+            if (!fieldErrors[field]) {
+              fieldErrors[field] = [];
+            }
+            fieldErrors[field].push(error.msg);
+          });
+          
+          throw {
+            message: 'Ошибка валидации данных',
+            status: response.status,
+            errors: fieldErrors,
+            validationErrors: validationErrors,
+          } as ApiError;
+        }
+        
         throw {
-          message: errorData.detail || 'Ошибка запроса',
+          message: errorData.detail || errorData.message || 'Ошибка запроса',
           status: response.status,
           errors: errorData.errors || {},
-        };
+        } as ApiError;
       }
       
       if (response.status === 204) {
@@ -65,7 +89,7 @@ class ApiClient {
         throw {
           message: 'Превышено время ожидания запроса',
           status: 408,
-        };
+        } as ApiError;
       }
       throw error;
     }

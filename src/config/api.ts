@@ -16,9 +16,9 @@ export const API_ENDPOINTS = {
   products: '/api/v1/products/',
   product: (id: number) => `/api/v1/products/${id}`,
   
-  // Variants
+  // Variants (согласно swagger.json)
   variants: '/api/v1/variants/',
-  variant: (id: number) => `/api/v1/variants/${id}`,
+  variant: (id: number) => `/api/v1/variant/${id}`, // Обратите внимание на единственное число
   productVariants: (productId: number) => `/api/v1/variants/${productId}`,
   
   // Images

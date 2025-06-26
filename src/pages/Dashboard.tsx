@@ -1,248 +1,403 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ApiError } from '@/components/ui/api-error';
 import { useApi } from '@/hooks/use-api';
-import { categoriesApi } from '@/services/categories-api';
 import { productsApi } from '@/services/products-api';
 import { variantsApi } from '@/services/variants-api';
+import { categoriesApi } from '@/services/categories-api';
 import { imagesApi } from '@/services/images-api';
-import { Package, Tags, Palette, Images, TrendingUp, AlertTriangle } from 'lucide-react';
+import type { Product, ProductVariantWithDetails } from '@/types';
+import { 
+  Package, 
+  Palette, 
+  FolderOpen, 
+  Image as ImageIcon, 
+  TrendingUp, 
+  AlertTriangle, 
+  CheckCircle, 
+  Plus,
+  Eye,
+  Edit
+} from 'lucide-react';
 
 interface DashboardStats {
-  categories: number;
-  products: number;
-  variants: number;
-  images: number;
+  totalProducts: number;
+  totalVariants: number;
+  totalCategories: number;
+  totalImages: number;
   activeProducts: number;
-  draftProducts: number;
   lowStockVariants: number;
   outOfStockVariants: number;
+  productsWithVariants: number;
+  variantsWithImages: number;
 }
 
 export function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
-    categories: 0,
-    products: 0,
-    variants: 0,
-    images: 0,
+    totalProducts: 0,
+    totalVariants: 0,
+    totalCategories: 0,
+    totalImages: 0,
     activeProducts: 0,
-    draftProducts: 0,
     lowStockVariants: 0,
     outOfStockVariants: 0,
+    productsWithVariants: 0,
+    variantsWithImages: 0,
   });
+  const [recentProducts, setRecentProducts] = useState<Product[]>([]);
+  const [recentVariants, setRecentVariants] = useState<ProductVariantWithDetails[]>([]);
 
-  const [categoriesState, categoriesActions] = useApi(categoriesApi.getAll.bind(categoriesApi));
-  const [productsState, productsActions] = useApi(productsApi.getAll.bind(productsApi));
-  const [variantsState, variantsActions] = useApi(variantsApi.getAll.bind(variantsApi));
-  const [imagesState, imagesActions] = useApi(imagesApi.getAll.bind(imagesApi));
+  // API хуки
+  const [getProductsState, getProductsActions] = useApi(productsApi.getAll.bind(productsApi));
+  const [getVariantsState, getVariantsActions] = useApi(variantsApi.getAllWithDetails.bind(variantsApi));
+  const [getCategoriesState, getCategoriesActions] = useApi(categoriesApi.getAll.bind(categoriesApi));
+  const [getImagesState, getImagesActions] = useApi(imagesApi.getAll.bind(imagesApi));
 
-  const loadData = async () => {
-    try {
-      const [categories, products, variants, images] = await Promise.all([
-        categoriesActions.execute(),
-        productsActions.execute(),
-        variantsActions.execute(),
-        imagesActions.execute(),
-      ]);
-
-      setStats({
-        categories: categories.length,
-        products: products.length,
-        variants: variants.length,
-        images: images.length,
-        activeProducts: products.filter((p: any) => p.is_active).length,
-        draftProducts: products.filter((p: any) => !p.is_active).length,
-        lowStockVariants: variants.filter((v: any) => v.stock_quantity < 10 && v.stock_quantity > 0).length,
-        outOfStockVariants: variants.filter((v: any) => v.stock_quantity === 0).length,
-      });
-    } catch (error) {
-      console.error('Ошибка загрузки статистики:', error);
-    }
-  };
-
+  // Загрузка данных при монтировании
   useEffect(() => {
     loadData();
   }, []);
 
-  const isLoading = categoriesState.loading || productsState.loading || variantsState.loading || imagesState.loading;
-  const hasError = categoriesState.error || productsState.error || variantsState.error || imagesState.error;
+  // Обновление статистики при получении данных
+  useEffect(() => {
+    if (getProductsState.data && getVariantsState.data && getCategoriesState.data && getImagesState.data) {
+      calculateStats();
+    }
+  }, [getProductsState.data, getVariantsState.data, getCategoriesState.data, getImagesState.data]);
 
-  if (isLoading && stats.categories === 0) {
+  const loadData = async () => {
+    try {
+      await Promise.all([
+        getProductsActions.execute(),
+        getVariantsActions.execute(),
+        getCategoriesActions.execute(),
+        getImagesActions.execute(),
+      ]);
+    } catch (error) {
+      console.error('Ошибка загрузки данных:', error);
+    }
+  };
+
+  const calculateStats = () => {
+    const products = getProductsState.data || [];
+    const variants = getVariantsState.data || [];
+    const categories = getCategoriesState.data || [];
+    const images = getImagesState.data || [];
+
+    const activeProducts = products.filter(p => p.is_active).length;
+    const lowStockVariants = variants.filter(v => v.stock_quantity > 0 && v.stock_quantity < 10).length;
+    const outOfStockVariants = variants.filter(v => v.stock_quantity === 0).length;
+    const productsWithVariants = products.filter(p => 
+      variants.some(v => v.product_id === p.id)
+    ).length;
+    const variantsWithImages = variants.filter(v => 
+      images.some(img => img.variant_id === v.id)
+    ).length;
+
+    setStats({
+      totalProducts: products.length,
+      totalVariants: variants.length,
+      totalCategories: categories.length,
+      totalImages: images.length,
+      activeProducts,
+      lowStockVariants,
+      outOfStockVariants,
+      productsWithVariants,
+      variantsWithImages,
+    });
+
+    // Устанавливаем недавние элементы (последние 5)
+    setRecentProducts(products.slice(-5).reverse());
+    setRecentVariants(variants.slice(-5).reverse());
+  };
+
+  const isLoading = getProductsState.loading || getVariantsState.loading || getCategoriesState.loading || getImagesState.loading;
+  const error = getProductsState.error || getVariantsState.error || getCategoriesState.error || getImagesState.error;
+
+  if (isLoading && stats.totalProducts === 0) {
     return <LoadingState message="Загрузка статистики..." />;
   }
 
-  if (hasError) {
-    return <ApiError error={hasError} onRetry={loadData} />;
+  if (error) {
+    return <ApiError error={error} onRetry={loadData} />;
   }
 
-  const quickStats = [
-    {
-      title: 'Категории',
-      value: stats.categories,
-      icon: Tags,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-    },
-    {
-      title: 'Товары',
-      value: stats.products,
-      icon: Package,
-      color: 'text-green-600',
-      bgColor: 'bg-green-50',
-    },
-    {
-      title: 'Варианты',
-      value: stats.variants,
-      icon: Palette,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-    },
-    {
-      title: 'Изображения',
-      value: stats.images,
-      icon: Images,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-    },
-  ];
-
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="p-4 lg:p-6 space-y-6">
+      {/* Заголовок */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Панель управления
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Добро пожаловать в админку интернет-магазина
-          </p>
+          <h1 className="text-2xl lg:text-3xl font-bold">Панель управления</h1>
+          <p className="text-gray-600 text-sm lg:text-base">Обзор и управление товарами, вариантами и изображениями</p>
         </div>
-        <div className="flex items-center space-x-2">
-          <Badge variant="outline" className="text-green-700 border-green-200">
-            <TrendingUp className="mr-1 h-3 w-3" />
-            Система активна
-          </Badge>
+        <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+          <Button asChild className="w-full sm:w-auto">
+            <Link to="/products">
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить товар
+            </Link>
+          </Button>
+          <Button variant="outline" asChild className="w-full sm:w-auto">
+            <Link to="/variants">
+              <Palette className="mr-2 h-4 w-4" />
+              Добавить вариант
+            </Link>
+          </Button>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {quickStats.map((stat) => (
-          <Card key={stat.title} className="hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-700">
-                {stat.title}
-              </CardTitle>
-              <div className={`p-2 rounded-lg ${stat.bgColor}`}>
-                <stat.icon className={`h-5 w-5 ${stat.color}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-900">
-                {stat.value}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Основная статистика */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Всего товаров</CardTitle>
+            <Package className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalProducts}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.activeProducts} активных
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Вариантов товаров</CardTitle>
+            <Palette className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalVariants}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.variantsWithImages} с изображениями
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Категорий</CardTitle>
+            <FolderOpen className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalCategories}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.productsWithVariants} товаров с вариантами
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Изображений</CardTitle>
+            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalImages}</div>
+            <p className="text-xs text-muted-foreground">
+              Среднее: {stats.totalVariants > 0 ? Math.round(stats.totalImages / stats.totalVariants) : 0} на вариант
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Status Overview */}
+      {/* Предупреждения и уведомления */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Card className={stats.outOfStockVariants > 0 ? "border-red-200 bg-red-50" : ""}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Нет в наличии</CardTitle>
+            <AlertTriangle className={`h-4 w-4 ${stats.outOfStockVariants > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${stats.outOfStockVariants > 0 ? "text-red-600" : ""}`}>
+              {stats.outOfStockVariants}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              вариантов товаров
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={stats.lowStockVariants > 0 ? "border-orange-200 bg-orange-50" : ""}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Мало товара</CardTitle>
+            <TrendingUp className={`h-4 w-4 ${stats.lowStockVariants > 0 ? "text-orange-500" : "text-muted-foreground"}`} />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold ${stats.lowStockVariants > 0 ? "text-orange-600" : ""}`}>
+              {stats.lowStockVariants}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              вариантов (1-9 шт.)
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="sm:col-span-2 lg:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Статус системы</CardTitle>
+            <CheckCircle className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              {stats.totalProducts > 0 ? "Активна" : "Пуста"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Все системы работают
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Недавние товары и варианты */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Недавние товары */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Package className="h-5 w-5 text-green-600" />
-              <span>Статус товаров</span>
+            <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+              <span>Недавние товары</span>
+              <Button variant="outline" size="sm" asChild className="w-full sm:w-auto">
+                <Link to="/products">
+                  <Eye className="mr-2 h-4 w-4" />
+                  Все товары
+                </Link>
+              </Button>
             </CardTitle>
             <CardDescription>
-              Распределение товаров по статусам
+              Последние добавленные товары
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-green-500 rounded-full" />
-                <span className="text-sm text-gray-700">Активные</span>
+          <CardContent>
+            {recentProducts.length > 0 ? (
+              <div className="space-y-3">
+                {recentProducts.map((product) => (
+                  <div key={product.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-lg space-y-2 sm:space-y-0">
+                    <div className="flex items-center space-x-3">
+                      <Package className="h-5 w-5 text-blue-500 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{product.name}</p>
+                        <p className="text-sm text-gray-500 truncate">{product.category?.name}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant={product.is_active ? "default" : "secondary"} className="text-xs">
+                        {product.is_active ? "Активен" : "Неактивен"}
+                      </Badge>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={`/products/${product.id}`}>
+                          <Edit className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <Badge variant="secondary">{stats.activeProducts}</Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full" />
-                <span className="text-sm text-gray-700">Черновики</span>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Package className="mx-auto h-8 w-8 mb-2" />
+                <p>Товары не найдены</p>
+                <Button variant="outline" size="sm" className="mt-2" asChild>
+                  <Link to="/products">Добавить первый товар</Link>
+                </Button>
               </div>
-              <Badge variant="secondary">{stats.draftProducts}</Badge>
-            </div>
+            )}
           </CardContent>
         </Card>
 
+        {/* Недавние варианты */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <AlertTriangle className="h-5 w-5 text-orange-600" />
-              <span>Остатки на складе</span>
+            <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+              <span>Недавние варианты</span>
+              <Button variant="outline" size="sm" asChild className="w-full sm:w-auto">
+                <Link to="/variants">
+                  <Eye className="mr-2 h-4 w-4" />
+                  Все варианты
+                </Link>
+              </Button>
             </CardTitle>
             <CardDescription>
-              Товары с низкими остатками
+              Последние добавленные варианты товаров
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-orange-500 rounded-full" />
-                <span className="text-sm text-gray-700">Мало на складе (&lt;10)</span>
+          <CardContent>
+            {recentVariants.length > 0 ? (
+              <div className="space-y-3">
+                {recentVariants.map((variant) => (
+                  <div key={variant.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-lg space-y-2 sm:space-y-0">
+                    <div className="flex items-center space-x-3">
+                      <Palette className="h-5 w-5 text-purple-500 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{variant.product?.name}</p>
+                        <p className="text-sm text-gray-500 truncate">
+                          {variant.color || 'Без цвета'} {variant.size || 'Без размера'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant={variant.stock_quantity > 0 ? "default" : "destructive"} className="text-xs">
+                        {variant.stock_quantity} шт.
+                      </Badge>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to="/variants">
+                          <Edit className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <Badge variant="secondary" className="text-orange-700 bg-orange-50">
-                {stats.lowStockVariants}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full" />
-                <span className="text-sm text-gray-700">Нет в наличии</span>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Palette className="mx-auto h-8 w-8 mb-2" />
+                <p>Варианты не найдены</p>
+                <Button variant="outline" size="sm" className="mt-2" asChild>
+                  <Link to="/variants">Добавить первый вариант</Link>
+                </Button>
               </div>
-              <Badge variant="secondary" className="text-red-700 bg-red-50">
-                {stats.outOfStockVariants}
-              </Badge>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Recent Activity */}
+      {/* Быстрые действия */}
       <Card>
         <CardHeader>
-          <CardTitle>Последние изменения</CardTitle>
+          <CardTitle>Быстрые действия</CardTitle>
           <CardDescription>
-            Последние обновления в системе
+            Часто используемые функции для быстрого доступа
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full" />
-                <span className="text-gray-700">Добавлен товар "Футболка Premium"</span>
-              </div>
-              <span className="text-gray-500">2 часа назад</span>
-            </div>
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                <span className="text-gray-700">Обновлена категория "Обувь"</span>
-              </div>
-              <span className="text-gray-500">4 часа назад</span>
-            </div>
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-orange-500 rounded-full" />
-                <span className="text-gray-700">Загружены изображения для кроссовок</span>
-              </div>
-              <span className="text-gray-500">6 часов назад</span>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Button variant="outline" className="h-20 flex-col" asChild>
+              <Link to="/products">
+                <Package className="h-6 w-6 mb-2" />
+                <span className="text-sm">Управление товарами</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-20 flex-col" asChild>
+              <Link to="/variants">
+                <Palette className="h-6 w-6 mb-2" />
+                <span className="text-sm">Управление вариантами</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-20 flex-col" asChild>
+              <Link to="/categories">
+                <FolderOpen className="h-6 w-6 mb-2" />
+                <span className="text-sm">Управление категориями</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-20 flex-col" asChild>
+              <Link to="/images">
+                <ImageIcon className="h-6 w-6 mb-2" />
+                <span className="text-sm">Управление изображениями</span>
+              </Link>
+            </Button>
           </div>
         </CardContent>
       </Card>

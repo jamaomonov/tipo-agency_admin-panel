@@ -1,33 +1,21 @@
 import { apiClient } from '@/lib/api-client';
 import { API_ENDPOINTS } from '@/config/api';
-import type { ProductVariant, ProductVariantFormData, ProductVariantWithDetails } from '@/types';
+import type { ProductVariant, ProductVariantCreate, ProductVariantUpdate, ProductVariantWithDetails, PaginationParams } from '@/types';
 
-// Согласно Swagger, VariantCreate и VariantUpdate
-type VariantCreate = ProductVariantFormData;
-type VariantUpdate = Partial<ProductVariantFormData>;
-
-export interface VariantCreateRequest {
-  product_id: number;
-  price: number;
-  stock_quantity?: number;
-  color?: string;
-  size?: string;
-  material?: string;
-}
-
-export interface VariantUpdateRequest {
-  product_id?: number;
-  price?: number;
-  stock_quantity?: number;
-  color?: string;
-  size?: string;
-  material?: string;
-}
+export interface VariantsListParams extends PaginationParams {}
 
 export class VariantsApiService {
-  // Получить все варианты
-  async getAll(): Promise<ProductVariant[]> {
-    const response = await apiClient.get<ProductVariant[]>(API_ENDPOINTS.variants);
+  // Получить все варианты с пагинацией
+  async getAll(params: VariantsListParams = {}): Promise<ProductVariant[]> {
+    const searchParams = new URLSearchParams();
+    if (params.skip !== undefined) searchParams.append('skip', params.skip.toString());
+    if (params.limit !== undefined) searchParams.append('limit', params.limit.toString());
+    
+    const endpoint = searchParams.toString() 
+      ? `${API_ENDPOINTS.variants}?${searchParams.toString()}`
+      : API_ENDPOINTS.variants;
+      
+    const response = await apiClient.get<ProductVariant[]>(endpoint);
     return response.data;
   }
 
@@ -50,16 +38,14 @@ export class VariantsApiService {
   }
 
   // Создать новый вариант
-  async create(data: ProductVariantFormData): Promise<ProductVariant> {
-    const requestData: VariantCreate = data;
-    const response = await apiClient.post<ProductVariant>(API_ENDPOINTS.variants, requestData);
+  async create(data: ProductVariantCreate): Promise<ProductVariant> {
+    const response = await apiClient.post<ProductVariant>(API_ENDPOINTS.variants, data);
     return response.data;
   }
 
   // Обновить вариант
-  async update(id: number, data: ProductVariantFormData): Promise<ProductVariant> {
-    const requestData: VariantUpdate = data;
-    const response = await apiClient.put<ProductVariant>(API_ENDPOINTS.variant(id), requestData);
+  async update(id: number, data: ProductVariantUpdate): Promise<ProductVariant> {
+    const response = await apiClient.put<ProductVariant>(API_ENDPOINTS.variant(id), data);
     return response.data;
   }
 
